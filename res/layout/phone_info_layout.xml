@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    android:background="@color/black"
+    android:orientation="vertical" >
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:paddingBottom="16dip"
+        android:text="@string/activity_label"
+        android:textColor="@color/dark_green"
+        android:textSize="@dimen/font_large" />
+
+    <TextView
+        android:id="@+id/batteryInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:text="@string/batteryInfo"
+        android:textColor="@color/dark_green"
+        android:textSize="@dimen/font_medium" />
+
+    <TextView
+        android:id="@+id/unreadSMSInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:text="@string/SMSInfo"
+        android:textColor="@color/dark_blue"
+        android:textSize="@dimen/font_medium" />
+
+    <TextView
+        android:id="@+id/missedCallsInfo"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:text="@string/missedCallsInfo"
+        android:textColor="@color/dark_red"
+        android:textSize="@dimen/font_medium" />
+
+    <SeekBar
+        android:id="@+id/displayInentisty"
+        android:layout_width="300dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:max="15" />
+
+    <ImageView
+        android:id="@+id/ic_bt_status"
+        android:layout_width="@dimen/font_large"
+        android:layout_height="0dp"
+        android:layout_weight="0.06"
+        android:contentDescription="@string/bt_status_icon"
+        android:src="@drawable/ic_btnc" />
+
+</LinearLayout>
