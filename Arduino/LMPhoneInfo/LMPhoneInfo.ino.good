@@ -1,0 +1,443 @@
+/* ==================================================================================
+ * Accessory for displaying information from cellular phone on a display
+ * ==================================================================================
+ * Program using a Bluetooth module to communicate with and Android phone and get
+ * basic information to be displayed on dedicated screen of the accessory
+ * Bluetooth module is RN-42 based BlueSMiRF Silver module:
+ * Refrence http://www.sparkfun.com/datasheets/Wireless/Bluetooth/rn-bluetooth-um.pdf
+ * Currently support only 8 digits 7-Segment display, but can easily connect
+ * any other display or LED Matrix
+ *
+ * Display format
+ *  BB_SS_CC
+ *  Which means only 6 out of the 8 digits are actually used here.
+ *  BB      Percentile of battery. If battery is 100% but not Full,
+ *          will still show 99. If Full, will show F
+ *  _       Represent space (nothing on)
+ * SS       Number of unread SMS messages. I hope you are not going
+ *          to get more than 99 messages before reading them
+ *          If more than 99, will still show 99
+ * CC       Number of missed calls. Same here hope you are not going
+ *          to get more than 99 calls without answering them.
+ *          If more than 99, will still show 99
+ * If phone is not connected, display will show all decimal points on
+ *
+ * Before assembly, need to configue the BT module as following:
+ *      Command Response                Comment
+ *      $$$                             // Enter command mode for BT module
+ *              CMD
+ *      SR,<phone BT MAC address>       // Set the default device to connect to**
+ *              AOK
+ *      SM,3                            // Set BT to be in auto-connecting mode
+ *              AOK
+ *      SO,Z                            // We want to get CONNECTED and DISCONNECTED
+                                        // messages from BT module
+ *              AOK
+ *      ---                             // End command mode for BT module
+ *
+ *  ** There are several ways to get the BT MAC address of the phone. If you do not
+ *     have it displayed on the phone somewhere, do the following
+ *      $$$
+ *      I
+ *              here if BT module is in range it should be displayed
+ *  To configue the module you can either use and FTDI or an Arduino Mega with
+ *  code that gets from one port (Serial connected to the PC) and sends over to
+ *  Serial1connected to the BT module.
+ *
+ * ==================================================================================
+ * By: Zakie Mashiah
+ *      You may copy or reuse or modify any portions of this code if you present
+ *      visibule credit to the author.
+ * ==================================================================================
+ *  Revision History
+ *  24-May-2012    Initial version
+ *
+ * ==================================================================================
+ */
+#include <Arduino.h>
+#include "LedControl.h"
+
+/* ==================================================================================
+ * connection pins
+ * ==================================================================================
+ */
+#define DISPLAY_CLK_PIN     6
+#define DISPLAY_CS_PIN      5
+#define DISPLAY_DATA_PIN    4
+
+#define DEBUGFTDI_TX    1
+#define DEBUGFTDI_RX    0
+
+/* The below is where to connect FTDI for debugging
+ * The pins to connect the FTDI defined above.
+ * Use 9600 baud rate setting, I don't believe the
+ * software serail library can actually handle 115200
+ */
+//#include <SoftwareSerial.h>
+//SoftwareSerial debugSerial(DEBUGFTDI_RX, DEBUGFTDI_TX);
+HardwareSerial debugSerial = Serial;
+
+
+// The phone information we hold and get from the phone through BT
+typedef struct
+{
+    int battery;
+    bool batteryFull;
+    int unreadSMS;
+    int missedCalls;
+} PhoneBasicInfo;
+
+/* ==================================================================================
+ * Class that extends LedControl to have string printing
+ * ================================================================================== */
+class MaxSevenSegment : public LedControl
+{
+    byte intensity;
+public:
+    MaxSevenSegment();
+    void print(const char *str);
+    void print(PhoneBasicInfo *ppi);
+    int limit99(int x) { return (x > 99) ? 99 : x; }
+    char *getDisplayInfo();
+    void setIntensity(int intensity);
+    void showSmallFontNumber(int bank, int num);
+};
+
+MaxSevenSegment::MaxSevenSegment() : 
+    LedControl(DISPLAY_DATA_PIN, DISPLAY_CLK_PIN, DISPLAY_CS_PIN, 2) { intensity = 8;}
+
+void MaxSevenSegment::print(PhoneBasicInfo *pPhoneInfo)
+{
+    char buff[10];
+    const char *fmt;
+    int b, s, c;
+
+    // if  battery is 100% see if we have enough room for 3 digits or not for battery display
+    b = pPhoneInfo->battery;
+    s = pPhoneInfo->unreadSMS;
+    c = pPhoneInfo->missedCalls;
+    if ((b == 100) && ((s < 10) || (c < 10)) )
+    {
+        if (pPhoneInfo->unreadSMS < 10)
+            fmt = "%3d%2d %2d";
+        else
+            fmt = "%3d %2d%2d";
+    }
+    else
+    {
+        // Either not 100% battery or we do not have enough room for 3 digits of battery
+        b = limit99(b);
+        if (pPhoneInfo->batteryFull)
+            fmt = "F  %2d %2d";
+        else
+            fmt = "%2d %2d %2d";
+    }
+    s = limit99(s);
+    c = limit99(c);
+    sprintf(buff, fmt, b, s, c);
+    print(buff);	
+}
+
+void MaxSevenSegment::showSmallFontNumber(int bank, int num)
+{
+	byte digit0[] = { B111, B101, B101, B101, B111 };
+	byte digit1[] = { B110, B010, B010, B010, B111 };
+	byte digit2[] = { B111, B001, B111, B100, B111 };
+	byte digit3[] = { B111, B001, B111, B001, B111 };
+	byte digit4[] = { B101, B101, B111, B001, B001 };
+	byte digit5[] = { B111, B100, B111, B001, B111 };
+	byte digit6[] = { B111, B100, B111, B101, B111 };
+	byte digit7[] = { B111, B001, B001, B001, B001 };
+	byte digit8[] = { B111, B101, B111, B101, B111 };
+	byte digit9[] = { B111, B101, B111, B001, B001 };
+	byte *digits[] = { digit0, digit1, digit2, digit3, digit4, digit5, digit6, digit7, digit8, digit9 };
+	if (num < 100)
+	{
+		int dec = num / 10;
+		int unit = num % 10;
+		byte *ptrD = digits[dec];
+		byte *ptrU = digits[unit];
+		byte val;
+		
+                LedControl::setColumn(bank, 7, 0);
+		for (int i=4; i >=0; i--)
+		{
+			val = ptrU[i] | ( ptrD[i] << 4 );
+			LedControl::setColumn(bank, 6-i, val);
+		}
+                for (int i=1; i >= 0; i--)
+                  LedControl::setColumn(bank, i, 0);
+	}
+      else
+      {
+		for(int i=0; i < 8; i++)
+			LedControl::setColumn(bank, i, 0xFF);
+      }
+}
+
+
+void MaxSevenSegment::print(const char *str)
+{
+    int i;
+
+    debugSerial.print("Printing '"); debugSerial.print(str); debugSerial.println("' on 7Seg");
+    for(i=0; (i<8) && (str[i] != 0); i++)
+        setChar(0, i, str[i], false);
+}
+
+char *MaxSevenSegment::getDisplayInfo()
+{
+    static const char info[] = "{\"type\":\"8x8\", "		// JSON document with display information
+                               "\"intensity\":%d, "
+                               "\"height\":1, "
+                               "\"width\":3 }\n";
+   static char buffer[70];
+   
+   sprintf(buffer, info, (int)intensity);
+   return buffer;
+}
+
+
+void MaxSevenSegment::setIntensity(int inten)
+{
+    intensity = inten;
+    int devs = LedControl::getDeviceCount();
+    for (int i=0; i <devs; i++)
+      LedControl::setIntensity(i, inten);
+    
+}
+
+
+/* ==================================================================================
+ * Class to use as parser and container for data from phone
+ * ================================================================================== */
+class PhoneInfoSerial
+{
+private:
+    unsigned int pos;
+    PhoneBasicInfo phoneInfo;
+    #define COMM_BUFFER_SIZE 200
+    char           buffer[COMM_BUFFER_SIZE];
+    bool           connectedState;
+    MaxSevenSegment     display;
+    int            limit99(int x);
+    void showOnDebugSerial();
+    void showOnSevenSeg();
+public:
+    PhoneInfoSerial();
+    void begin();
+    void add(int val);
+    void show();
+    void process();
+    void processBTStatus();
+    void connectionState();
+    void setIntensity();
+    HardwareSerial *pSerial;
+};
+
+PhoneInfoSerial::PhoneInfoSerial()
+{
+    memset(&phoneInfo, 0, sizeof(phoneInfo));
+    memset(buffer, 0, sizeof(buffer));
+    pos = 0;
+    pSerial = &Serial;  // Initialize to Serial1. Change to SoftwareSerial once deployed in final assembly
+    connectedState = false;
+}
+
+// Adds a character from communication to buffer of read message
+void PhoneInfoSerial::add(int val)
+{
+    if (pos >= COMM_BUFFER_SIZE)
+        pos = 0; // Overwrite buffer if we got to the end of space in the buffer
+    buffer[pos] = val;
+    pos++;
+    debugSerial.print((char)val);
+}
+
+void PhoneInfoSerial::showOnDebugSerial()
+{
+    // On serial deubgging screen
+    debugSerial.print("Battery:      ");
+    debugSerial.print(phoneInfo.battery);
+    if (phoneInfo.batteryFull)
+        debugSerial.println(" Full");
+    else
+        debugSerial.println();
+    debugSerial.print("Unread SMS:   "); debugSerial.println(phoneInfo.unreadSMS);
+    debugSerial.print("Missed calls: "); debugSerial.println(phoneInfo.missedCalls);
+    debugSerial.println("--------------------");
+}
+
+void PhoneInfoSerial::showOnSevenSeg()
+{
+	display.showSmallFontNumber(0, phoneInfo.battery);
+        display.showSmallFontNumber(1, phoneInfo.unreadSMS);
+	//display.print(&phoneInfo);
+}
+
+void PhoneInfoSerial::show()
+{
+    int num;
+    int full = 0;
+
+    debugSerial.println();   // Take new line on debugging screen
+
+    // Parse data on buffer
+    num = sscanf(buffer, "B%d/%dS%dC%d",
+        &phoneInfo.battery, &full, &phoneInfo.unreadSMS, &phoneInfo.missedCalls);
+    if (num == 4)
+    {
+        phoneInfo.batteryFull = (full != 0) ? true : false; // Complete the parsing by storing the value of boolean
+        connectedState = true; // We are definitely connected
+
+        showOnDebugSerial();
+        showOnSevenSeg();
+    }
+    else
+        debugSerial.println("Wrong buffer format");
+}
+
+void PhoneInfoSerial::process()
+{
+    debugSerial.println();
+    switch (buffer[0])
+    {
+        // Protocol convention:
+        //      Capital letters represent phone sending data to accessory
+        //      Lower case letter represent a phone quering the accessory
+        //
+        // B phone reporting on {B}attery, SMS, Missed Calls information
+        //      B<percentile>/<full/not-full>S<unread SMS count>C<missed calls count>
+        // d phone asking for device {D}escription
+        // v phone asking for {V}erstion
+        // i phone asking for d{I}splay information and geomtry
+        // I phone is setting {I}ntensity of display
+        //      I<intensity 0..F>
+        //
+        //  Bluetooth serial port adapter status
+        // Z<CONNECTED/DISCONNECTED>    Connected or Disconnected status from BT module
+        //
+        // <<< Not Implemented Yet >>>
+        // M phone reporting on {M}issed call number
+        //      M<id>/<phone number>/<Contact Name>/<Date formatted yyyy-mm-dd>/<Time formatted HH:mm>
+        //      where id is a sequence number 0..10
+        // S phone reporting on unread {S}MS messages
+        //      S<id>/<phone number?/<contact name>/<Date formatter yyyy-mm-dd>/Time formatter HH:mm>/<text>
+        case 'B': show(); break;
+        case 'n': pSerial->println("{\"name\":\"Arduino Phone Info Accessory\"}"); break;
+        case 'v': pSerial->println("{\"version\":\"1.0\"}"); break;
+        case 'i': pSerial->println(display.getDisplayInfo()); break;
+        case 'I': setIntensity(); break;
+    }
+    memset(buffer, 0, sizeof(buffer));
+    pos = 0;
+}
+
+void PhoneInfoSerial::processBTStatus()
+{
+    debugSerial.print("\n\tProcessing connection token:");
+    debugSerial.println(buffer);
+    if (buffer[0] == 'Z')
+    {
+        if (strcmp(buffer, "ZCONNECT") == 0)
+        {
+            connectedState = true;
+            process();
+            display.print("connectd");
+        }
+        else
+            if (strcmp(buffer, "ZDISCONNECT") == 0)
+            {
+                connectedState = false;
+                process();
+                display.print("........");
+            }
+        memset(buffer, 0, sizeof(buffer));
+        pos = 0;
+    }
+}
+
+
+
+void PhoneInfoSerial::setIntensity()
+{
+    int inten, num;
+
+    num = sscanf(buffer, "I%x", &inten);
+    if (num == 1)
+    {
+        if ((inten >= 0) && (inten < 16))
+            display.setIntensity(inten);
+    }
+    else
+        debugSerial.print("Wrong intensity value");
+}
+
+int PhoneInfoSerial::limit99(int x) { return (x > 99) ? 99 : x; }
+
+void PhoneInfoSerial::begin()
+{
+    display.shutdown(0, false);
+    display.setIntensity(8);
+    display.clearDisplay(0);
+    display.print("dcon");
+}
+
+
+/* ================================================================================== */
+/*                      Global Variables                                              */
+/* ================================================================================== */
+static int ledPin = 13;
+static PhoneInfoSerial phoneInfo;
+
+
+void initBTModule()
+{
+    // The below is with my phone BT MAC address
+    //static const char *initString = "$$$SR,9C02987428FA\rSM,3\rSO,Z\r---\r";
+    static const char initString1[] = "$$$";
+    static const char initString2[] = "R,1\r";
+    static const char initString3[] = "$$$";
+    static const char initString4[] = "SM,3\rSO,Z\r---\r";
+    static const char *initVector[] = { initString1, initString2, initString3, initString4, NULL };
+    int i;
+
+    for (i=0; initVector[i] != NULL; i++)
+    {
+        Serial.print(initVector[i]);
+        delay(500);
+    }
+
+}
+
+void setup()
+{
+    
+    debugSerial.begin(115200);
+    debugSerial.println("Starting PhoneInfo Accessory");
+    //Serial.begin(115200);  // On final assembly change to right SoftwareSerial
+    pinMode(ledPin, OUTPUT);
+    phoneInfo.begin();
+	//initBTModule();
+    debugSerial.println("Setup completed");
+}
+
+void loop()
+{
+    int val = 0;
+
+    if (debugSerial.available() )
+    {
+        val = debugSerial.read();
+        if ( (val == '\r') || (val == '\n') )
+            phoneInfo.process();
+        else
+        {
+            if (val < 0x20)    // Ignore control characters
+                return;
+            phoneInfo.add(val);
+            if (val == 'T')
+                phoneInfo.processBTStatus();
+        }
+    }
+}
