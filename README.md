@@ -4,6 +4,9 @@ This app runs on Android phones and sends missed calls, unread SMS and battery s
 
 This code includes an Android application and an Arduino based code. 
 
+Details of assembly and all can be found here:
+http://www.instructables.com/id/Missed-calls-and-SMS-Notifier-Accessory/
+
 ##Folders##
 Arduino		The Arduino based code
 all others	The Eclipse project
